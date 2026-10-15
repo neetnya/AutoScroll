@@ -8,6 +8,7 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
+        Icon="AutoScroll.ico"
         Width="220"
         SizeToContent="Height"
         WindowStartupLocation="CenterScreen"
