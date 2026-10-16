@@ -84,6 +84,41 @@ internal static class NativeMethods
         public uint dwFlags;
     }
 
+    private const int GwlExStyle = -20;
+    private const int WsExNoActivate = 0x08000000;
+    private const int WmNcLButtonDown = 0x00A1;
+    private const int HtCaption = 2;
+
+    public const int WmMouseActivate = 0x0021;
+    public const int MaNoActivate = 3;
+    public const int WmDisplayChange = 0x007E;
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll")]
+    private static extern bool ReleaseCapture();
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>让窗口可点、但不成为前台窗口，避免抢走正在阅读的窗口焦点。</summary>
+    public static void PreventActivation(IntPtr hwnd)
+    {
+        long ex = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+        SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(ex | WsExNoActivate));
+    }
+
+    /// <summary>不激活窗口的拖动（替代 WPF DragMove）。</summary>
+    public static void DragWithoutActivate(IntPtr hwnd)
+    {
+        ReleaseCapture();
+        SendMessage(hwnd, WmNcLButtonDown, (IntPtr)HtCaption, IntPtr.Zero);
+    }
+
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
 

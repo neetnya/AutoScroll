@@ -31,7 +31,26 @@ public partial class MainWindow : Window
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        var source = (HwndSource)PresentationSource.FromVisual(this)!;
+        NativeMethods.PreventActivation(source.Handle);
+        source.AddHook(WndProc);
         ClampToWorkingArea();
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == NativeMethods.WmMouseActivate)
+        {
+            handled = true;
+            return (IntPtr)NativeMethods.MaNoActivate;
+        }
+
+        if (msg == NativeMethods.WmDisplayChange)
+        {
+            Dispatcher.BeginInvoke(ClampToWorkingArea);
+        }
+
+        return IntPtr.Zero;
     }
 
     private void OnToggleClick(object sender, RoutedEventArgs e)
@@ -97,7 +116,7 @@ public partial class MainWindow : Window
     {
         if (e.LeftButton == MouseButtonState.Pressed)
         {
-            DragMove();
+            NativeMethods.DragWithoutActivate(new WindowInteropHelper(this).Handle);
             ClampToWorkingArea();
             SaveSettings();
         }
