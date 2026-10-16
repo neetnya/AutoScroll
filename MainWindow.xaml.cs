@@ -188,6 +188,13 @@ public partial class MainWindow : Window
         });
     }
 
+    public void BringOnScreen()
+    {
+        ClampToWorkingArea();
+        Topmost = false;
+        Topmost = true;
+    }
+
     private void ClampToWorkingArea()
     {
         IntPtr hwnd = new WindowInteropHelper(this).Handle;

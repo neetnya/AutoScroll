@@ -12,6 +12,7 @@
 - **幅度调节**：20 档，控制单次滚动的刻度数。
 - **拖拽移动**：按住面板空白处拖动即可移动位置；窗口会被限制在当前显示器工作区内。
 - **记住状态**：速度、幅度、方向和面板位置写入 `%AppData%\AutoScroll\settings.json`，下次启动沿用。
+- **单实例**：再次启动不会开第二个面板，而是把已有面板拉回当前屏幕。
 - **退出**：点右上角「✕」按钮关闭程序。
 
 ## 使用步骤
@@ -61,7 +62,7 @@
 ```
 AutoScroll.sln          解决方案
 AutoScroll.csproj       项目文件（单文件发布、非自包含）
-App.xaml / App.xaml.cs  应用入口
+App.xaml / App.xaml.cs  应用入口（单实例）
 MainWindow.xaml / .cs   悬浮面板 UI 与交互
 ScrollService.cs        滚动逻辑（状态、定时、速度/幅度计算）
 SettingsStore.cs        参数和窗口位置的本地存储
