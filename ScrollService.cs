@@ -1,10 +1,10 @@
-using System.Windows.Threading;
+using System.Diagnostics;
 
 namespace AutoScroll;
 
 /// <summary>
 /// 滚动逻辑核心：维护启停状态、滚动方向、速度档位、滚动幅度，
-/// 用 DispatcherTimer 周期性地调用 NativeMethods.SendWheel。
+/// 在后台线程按间隔调用 NativeMethods.SendWheel。
 /// 速度 = 两次滚轮事件的间隔；幅度 = 单次滚动的刻度数。
 /// </summary>
 internal sealed class ScrollService
@@ -24,16 +24,19 @@ internal sealed class ScrollService
     /// <summary>非 null 时表示需要在面板上显示的提示；null 表示清除。</summary>
     public event EventHandler<string?>? AdvisoryChanged;
 
-    private DispatcherTimer? _timer;
-    private int _speed = DefaultSpeed;
-    private int _amplitude = DefaultAmplitude;
-    private int _direction = DefaultDirection;
+    private readonly object _gate = new();
+    private Thread? _thread;
+    private ManualResetEventSlim? _wake;
+    private volatile bool _running;
+    private volatile int _speed = DefaultSpeed;
+    private volatile int _amplitude = DefaultAmplitude;
+    private volatile int _direction = DefaultDirection;
     private int _failStreak;
 
     /// <summary>是否正在滚动。</summary>
-    public bool IsRunning => _timer is { IsEnabled: true };
+    public bool IsRunning => _running;
 
-    /// <summary>当前速度档位（1~20）。</summary>
+    /// <summary>当前速度档位（1~40）。</summary>
     public int Speed => _speed;
 
     /// <summary>当前幅度（1~20，单次滚动刻度数）。</summary>
@@ -45,17 +48,19 @@ internal sealed class ScrollService
     /// <summary>
     /// 由速度档位 s（1~40）计算两次滚轮事件间的间隔毫秒数。
     /// s=21 为中间值 → 200ms（旧速度1）；s=1 最慢 → 2000ms；s=40 最快 → 50ms。
+    /// 1~20 线性接到 200ms，避免 20→21 出现 90ms 跳变。
     /// </summary>
     public static int ComputeIntervalMs(int speed)
     {
         int s = ClampSpeed(speed);
         if (s >= 21)
         {
-            // 21 → 200ms，40 → 50ms（复用旧的更快区间线性映射）。
+            // 21 → 200ms，40 → 50ms。
             return (int)Math.Round(200.0 - (s - 21) * (150.0 / 19.0));
         }
-        // 1 → 2000ms，21 → 200ms（更慢区间线性映射，每档 +90ms）。
-        return 200 + (21 - s) * 90;
+
+        // 1 → 2000ms，20 → 200ms，与 21 档对齐。
+        return (int)Math.Round(2000.0 - (s - 1) * (1800.0 / 19.0));
     }
 
     /// <summary>钳制速度档位到 [1, 40]。</summary>
@@ -68,10 +73,6 @@ internal sealed class ScrollService
     public void SetSpeed(int speed)
     {
         _speed = ClampSpeed(speed);
-        if (_timer is { IsEnabled: true })
-        {
-            _timer.Interval = TimeSpan.FromMilliseconds(ComputeIntervalMs(_speed));
-        }
     }
 
     /// <summary>设置滚动幅度（运行中即时生效）。</summary>
@@ -89,41 +90,106 @@ internal sealed class ScrollService
     /// <summary>启动滚动（已启动则无操作）。</summary>
     public void Start()
     {
-        if (IsRunning)
+        lock (_gate)
         {
-            return;
-        }
+            if (_running)
+            {
+                return;
+            }
 
-        _timer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(ComputeIntervalMs(_speed)),
-        };
-        _timer.Tick += OnTick;
-        _timer.Start();
+            _failStreak = 0;
+            _wake = new ManualResetEventSlim(false);
+            _running = true;
+            _thread = new Thread(Loop)
+            {
+                IsBackground = true,
+                Name = "AutoScroll.Wheel",
+            };
+            _thread.Start();
+        }
     }
 
     /// <summary>停止滚动（已停止则无操作）。</summary>
     public void Stop()
     {
-        if (_timer is null)
+        Thread? thread;
+        ManualResetEventSlim? wake;
+        lock (_gate)
         {
-            return;
+            if (!_running)
+            {
+                return;
+            }
+
+            _running = false;
+            wake = _wake;
+            _wake = null;
+            thread = _thread;
+            _thread = null;
         }
 
-        _timer.Stop();
-        _timer.Tick -= OnTick;
-        _timer = null;
+        wake?.Set();
+        thread?.Join(TimeSpan.FromSeconds(1));
+        wake?.Dispose();
         _failStreak = 0;
         AdvisoryChanged?.Invoke(this, null);
     }
 
-    private void OnTick(object? sender, EventArgs e)
+    private void Loop()
     {
-        uint sent = NativeMethods.SendWheel(_direction, _amplitude);
+        bool hiRes = false;
+        Stopwatch clock = Stopwatch.StartNew();
+        long nextMs = 0;
+        try
+        {
+            while (_running)
+            {
+                uint sent = NativeMethods.SendWheel(_direction, _amplitude);
+                ReportSendResult(sent);
+
+                int interval = ComputeIntervalMs(_speed);
+                bool wantHiRes = interval <= 100;
+                if (wantHiRes && !hiRes)
+                {
+                    NativeMethods.BeginHighResolutionPeriod();
+                    hiRes = true;
+                }
+                else if (!wantHiRes && hiRes)
+                {
+                    NativeMethods.EndHighResolutionPeriod();
+                    hiRes = false;
+                }
+
+                nextMs += interval;
+                long now = clock.ElapsedMilliseconds;
+                int sleep = (int)(nextMs - now);
+                if (sleep > 0)
+                {
+                    if (_wake?.Wait(sleep) == true)
+                    {
+                        break;
+                    }
+                }
+                else
+                {
+                    nextMs = now;
+                }
+            }
+        }
+        finally
+        {
+            if (hiRes)
+            {
+                NativeMethods.EndHighResolutionPeriod();
+            }
+        }
+    }
+
+    private void ReportSendResult(uint sent)
+    {
         if (sent == 0)
         {
-            _failStreak++;
-            if (_failStreak >= 2)
+            if (Interlocked.Increment(ref _failStreak) == 2)
             {
                 AdvisoryChanged?.Invoke(this, "无法滚动该窗口");
             }
@@ -131,9 +197,8 @@ internal sealed class ScrollService
             return;
         }
 
-        if (_failStreak != 0)
+        if (Interlocked.Exchange(ref _failStreak, 0) != 0)
         {
-            _failStreak = 0;
             AdvisoryChanged?.Invoke(this, null);
         }
     }

@@ -32,12 +32,12 @@
 | 档位 | 间隔 | 说明 |
 |------|------|------|
 | 1 | 2000 ms | 最慢 |
-| 20 | 290 ms | |
+| 20 | 200 ms | 与 21 档对齐 |
 | 21 | 200 ms | 旧版速度 1 的中间值 |
 | 22 | 192 ms | **默认** |
 | 40 | 50 ms | 最快 |
 
-- 档位 1~20：更慢区间，间隔从 2000 ms 线性降到约 200 ms（每档 −90 ms）。
+- 档位 1~20：更慢区间，间隔从 2000 ms 线性降到 200 ms。
 - 档位 21~40：更快区间，间隔从 200 ms 线性降到 50 ms（每档约 −7.9 ms）。
 
 ### 幅度（1~20 档，默认 5）
@@ -53,7 +53,7 @@
 
 - **框架**：WPF（.NET 9），目标 `net9.0-windows`。
 - **滚动注入**：P/Invoke `user32.dll` 的 `SendInput`，构造 `MOUSEEVENTF_WHEEL`（`dwFlags = 0x0800`）鼠标事件。
-- **定时**：`DispatcherTimer` 按速度档位计算的间隔周期触发滚动。
+- **定时**：后台线程按间隔触发滚动；间隔 ≤100ms 时使用 `timeBeginPeriod(1)` 提高分辨率。
 - **方向映射**：Win32 滚轮 delta 正值=内容向上、负值=内容向下，故「向下」用负 delta、「向上」用正 delta。
 - **不抢焦点**：扩展样式 `WS_EX_NOACTIVATE`，点击面板时目标窗口保持激活。
 
@@ -66,7 +66,7 @@ App.xaml / App.xaml.cs  应用入口（单实例）
 MainWindow.xaml / .cs   悬浮面板 UI 与交互
 ScrollService.cs        滚动逻辑（状态、定时、速度/幅度计算）
 SettingsStore.cs        参数和窗口位置的本地存储
-NativeMethods.cs        Win32 SendInput / 显示器工作区 P/Invoke 封装
+NativeMethods.cs        Win32 SendInput / 窗口样式 / 显示器工作区 P/Invoke 封装
 README.md               本文件
 ```
 
@@ -89,3 +89,4 @@ dotnet publish AutoScroll.csproj -c Release -r win-x64 --self-contained false -o
 - 程序通过**鼠标指针位置**决定滚动目标窗口，滚动期间请把鼠标留在要滚的内容上，不要移到别的窗口。
 - 某些应用（游戏、部分自绘控件）可能不响应合成的滚轮事件，属正常现象。对管理员窗口等注入失败时，面板会显示「无法滚动该窗口」。
 - 需要系统已安装 .NET 9 Desktop Runtime（非自包含发布）。
+- 未处理异常写入 `%AppData%\AutoScroll\error.log`，UI 线程异常不会直接把面板打没。

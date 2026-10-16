@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace AutoScroll;
 
 /// <summary>
-/// 原生 Win32 调用：通过 SendInput 注入鼠标滚轮事件。
+/// 原生 Win32 调用：滚轮注入、窗口不激活、拖动、显示器工作区、高速定时器分辨率。
 /// </summary>
 internal static class NativeMethods
 {
@@ -30,6 +30,18 @@ internal static class NativeMethods
         public int type;
         public MouseInput mi;
     }
+
+    [DllImport("winmm.dll")]
+    private static extern uint timeBeginPeriod(uint uMilliseconds);
+
+    [DllImport("winmm.dll")]
+    private static extern uint timeEndPeriod(uint uMilliseconds);
+
+    /// <summary>提高系统定时器分辨率，仅在高速滚动时使用。</summary>
+    public static void BeginHighResolutionPeriod() => timeBeginPeriod(1);
+
+    /// <summary>恢复系统定时器分辨率。</summary>
+    public static void EndHighResolutionPeriod() => timeEndPeriod(1);
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, Input[] pInputs, int cbSize);

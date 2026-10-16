@@ -1,5 +1,7 @@
+using System.IO;
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace AutoScroll;
 
@@ -8,12 +10,20 @@ public partial class App : Application
     internal const string MutexName = @"Local\AutoScroll.SingleInstance";
     internal const string ShowEventName = @"Local\AutoScroll.ShowExisting";
 
+    private static readonly string ErrorLogPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "AutoScroll",
+        "error.log");
+
     private Mutex? _mutex;
     private EventWaitHandle? _showEvent;
     private CancellationTokenSource? _watchCts;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
         base.OnStartup(e);
 
         bool createdNew;
@@ -81,5 +91,43 @@ public partial class App : Application
 
         _mutex?.Dispose();
         base.OnExit(e);
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        LogException(e.Exception);
+        e.Handled = true;
+    }
+
+    private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    {
+        if (e.ExceptionObject is Exception ex)
+        {
+            LogException(ex);
+        }
+    }
+
+    private static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        LogException(e.Exception);
+        e.SetObserved();
+    }
+
+    private static void LogException(Exception ex)
+    {
+        try
+        {
+            string? dir = Path.GetDirectoryName(ErrorLogPath);
+            if (dir is not null)
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.AppendAllText(ErrorLogPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}{Environment.NewLine}");
+        }
+        catch
+        {
+            // 日志失败时不能再抛，否则会递归。
+        }
     }
 }
