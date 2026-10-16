@@ -21,10 +21,14 @@ internal sealed class ScrollService
     public const int DirectionUp = -1;
     public const int DefaultDirection = DirectionDown;
 
+    /// <summary>非 null 时表示需要在面板上显示的提示；null 表示清除。</summary>
+    public event EventHandler<string?>? AdvisoryChanged;
+
     private DispatcherTimer? _timer;
     private int _speed = DefaultSpeed;
     private int _amplitude = DefaultAmplitude;
     private int _direction = DefaultDirection;
+    private int _failStreak;
 
     /// <summary>是否正在滚动。</summary>
     public bool IsRunning => _timer is { IsEnabled: true };
@@ -109,10 +113,28 @@ internal sealed class ScrollService
         _timer.Stop();
         _timer.Tick -= OnTick;
         _timer = null;
+        _failStreak = 0;
+        AdvisoryChanged?.Invoke(this, null);
     }
 
     private void OnTick(object? sender, EventArgs e)
     {
-        NativeMethods.SendWheel(_direction, _amplitude);
+        uint sent = NativeMethods.SendWheel(_direction, _amplitude);
+        if (sent == 0)
+        {
+            _failStreak++;
+            if (_failStreak >= 2)
+            {
+                AdvisoryChanged?.Invoke(this, "无法滚动该窗口");
+            }
+
+            return;
+        }
+
+        if (_failStreak != 0)
+        {
+            _failStreak = 0;
+            AdvisoryChanged?.Invoke(this, null);
+        }
     }
 }

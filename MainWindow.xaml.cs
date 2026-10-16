@@ -9,6 +9,7 @@ namespace AutoScroll;
 public partial class MainWindow : Window
 {
     private readonly ScrollService _service = new();
+    private string? _advisory;
     private readonly DispatcherTimer _saveDebounce = new()
     {
         Interval = TimeSpan.FromMilliseconds(400),
@@ -18,6 +19,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _service.AdvisoryChanged += OnAdvisoryChanged;
         _saveDebounce.Tick += (_, _) =>
         {
             _saveDebounce.Stop();
@@ -125,6 +127,7 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        _service.AdvisoryChanged -= OnAdvisoryChanged;
         _saveDebounce.Stop();
         _service.Stop();
         SaveSettings();
@@ -216,15 +219,42 @@ public partial class MainWindow : Window
         Top = Math.Clamp(Top, workTopLeft.Y, Math.Max(workTopLeft.Y, workTopLeft.Y + areaHeight - height));
     }
 
+    private void OnAdvisoryChanged(object? sender, string? message)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            _advisory = message;
+            SyncStatusText();
+        });
+    }
+
+    private void SyncStatusText()
+    {
+        if (_advisory is not null)
+        {
+            StatusLabel.Text = _advisory;
+            StatusLabel.Foreground = (Brush)FindResource("CloseHover");
+            return;
+        }
+
+        bool on = _service.IsRunning;
+        StatusLabel.Text = on ? "滚动中" : "已停止";
+        StatusLabel.Foreground = on
+            ? (Brush)FindResource("Accent")
+            : (Brush)FindResource("TextPrimary");
+    }
+
     private void SyncRunningChrome()
     {
         bool on = _service.IsRunning;
         ToggleButton.Content = on ? "停止" : "开始";
         ToggleButton.Tag = on ? "On" : "Off";
-        StatusLabel.Text = on ? "滚动中" : "已停止";
-        StatusLabel.Foreground = on
-            ? (Brush)FindResource("Accent")
-            : (Brush)FindResource("TextPrimary");
+        if (!on)
+        {
+            _advisory = null;
+        }
+
+        SyncStatusText();
         ExtraSettings.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
         RootBorder.Background = (Brush)FindResource(on ? "PanelBgRunning" : "PanelBgIdle");
         RootBorder.BorderBrush = (Brush)FindResource(on ? "PanelBorderRunning" : "PanelBorderIdle");
