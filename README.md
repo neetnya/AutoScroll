@@ -49,14 +49,6 @@
 - ↓ 向下：内容向下滚动（默认）。
 - ↑ 向上：内容向上滚动。
 
-## 技术实现
-
-- **框架**：WPF（.NET 9），目标 `net9.0-windows`。
-- **滚动注入**：P/Invoke `user32.dll` 的 `SendInput`，构造 `MOUSEEVENTF_WHEEL`（`dwFlags = 0x0800`）鼠标事件。
-- **定时**：后台线程按间隔触发滚动；间隔 ≤100ms 时使用 `timeBeginPeriod(1)` 提高分辨率。
-- **方向映射**：Win32 滚轮 delta 正值=内容向上、负值=内容向下，故「向下」用负 delta、「向上」用正 delta。
-- **不抢焦点**：扩展样式 `WS_EX_NOACTIVATE`，点击面板时目标窗口保持激活。
-
 ## 项目结构
 
 ```
@@ -77,12 +69,7 @@ README.md               本文件
 ```powershell
 # 编译
 dotnet build AutoScroll.csproj -c Release
-
-# 发布单文件 exe（64 位，非自包含，依赖系统 .NET 9 运行时）
-dotnet publish AutoScroll.csproj -c Release -r win-x64 --self-contained false -o publish
 ```
-
-发布产物：`publish\AutoScroll.exe`（单文件）。
 
 ## 注意事项
 
