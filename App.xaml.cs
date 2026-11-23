@@ -18,6 +18,7 @@ public partial class App : Application
     private Mutex? _mutex;
     private EventWaitHandle? _showEvent;
     private CancellationTokenSource? _watchCts;
+    private Task? _watchTask;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -64,22 +65,46 @@ public partial class App : Application
         _watchCts = new CancellationTokenSource();
         CancellationToken token = _watchCts.Token;
         EventWaitHandle showEvent = _showEvent!;
-        _ = Task.Run(() =>
+        WaitHandle[] handles = new WaitHandle[] { showEvent, token.WaitHandle };
+
+        _watchTask = Task.Run(() =>
         {
-            while (!token.IsCancellationRequested)
+            try
             {
-                if (showEvent.WaitOne(TimeSpan.FromMilliseconds(500)))
+                while (!token.IsCancellationRequested)
                 {
-                    window.Dispatcher.BeginInvoke(window.BringOnScreen);
+                    int signaled = WaitHandle.WaitAny(handles);
+                    if (signaled == 0 && !token.IsCancellationRequested)
+                    {
+                        window.Dispatcher.BeginInvoke(window.BringOnScreen);
+                    }
+                    else
+                    {
+                        break;
+                    }
                 }
             }
-        }, token);
+            catch (ObjectDisposedException)
+            {
+                // 退出时忽略。
+            }
+        });
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
-        _watchCts?.Cancel();
+        try
+        {
+            _watchCts?.Cancel();
+            _watchTask?.Wait(TimeSpan.FromMilliseconds(500));
+        }
+        catch
+        {
+            // 退出阶段忽略等待异常。
+        }
+
         _showEvent?.Dispose();
+        _watchCts?.Dispose();
         try
         {
             _mutex?.ReleaseMutex();

@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace AutoScroll;
 
 /// <summary>
-/// 原生 Win32 调用：滚轮注入、窗口不激活、拖动、显示器工作区、高速定时器分辨率。
+/// 原生 Win32 调用：滚轮注入、窗口不激活、拖动、显示器工作区、光标命中检测、全局热键、高速定时器分辨率。
 /// </summary>
 internal static class NativeMethods
 {
@@ -29,6 +29,13 @@ internal static class NativeMethods
     {
         public int type;
         public MouseInput mi;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PointStruct
+    {
+        public int X;
+        public int Y;
     }
 
     [DllImport("winmm.dll")]
@@ -77,6 +84,7 @@ internal static class NativeMethods
     }
 
     private const uint MonitorDefaultToNearest = 2;
+    private const uint GaRoot = 2;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Rect
@@ -104,12 +112,24 @@ internal static class NativeMethods
     public const int WmMouseActivate = 0x0021;
     public const int MaNoActivate = 3;
     public const int WmDisplayChange = 0x007E;
+    public const int WmHotKey = 0x0312;
+
+    public const uint ModControl = 0x0002;
+    public const uint ModShift = 0x0004;
+    public const uint ModNoRepeat = 0x4000;
+    public const uint VkS = 0x53;
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+    private static extern int GetWindowLong32(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
+    private static extern int SetWindowLong32(IntPtr hWnd, int nIndex, int dwNewLong);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
-    private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+    private static extern IntPtr GetWindowLongPtr64(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
-    private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+    private static extern IntPtr SetWindowLongPtr64(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
 
     [DllImport("user32.dll")]
     private static extern bool ReleaseCapture();
@@ -117,11 +137,61 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
-    /// <summary>让窗口可点、但不成为前台窗口，避免抢走正在阅读的窗口焦点。</summary>
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out PointStruct lpPoint);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr WindowFromPoint(PointStruct point);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+    /// <summary>判断当前鼠标指针是否悬停在指定顶层窗口之上（用于避免滚轮打到面板自身）。</summary>
+    public static bool IsCursorOverWindow(IntPtr hwnd)
+    {
+        if (hwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (!GetCursorPos(out PointStruct pt))
+        {
+            return false;
+        }
+
+        IntPtr hit = WindowFromPoint(pt);
+        if (hit == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        if (hit == hwnd)
+        {
+            return true;
+        }
+
+        return GetAncestor(hit, GaRoot) == hwnd;
+    }
+
+    /// <summary>让窗口可点、但不成为前台窗口，避免抢走正在阅读的窗口焦点（兼容 32/64 位）。</summary>
     public static void PreventActivation(IntPtr hwnd)
     {
-        long ex = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
-        SetWindowLongPtr(hwnd, GwlExStyle, (IntPtr)(ex | WsExNoActivate));
+        if (IntPtr.Size == 8)
+        {
+            long ex = GetWindowLongPtr64(hwnd, GwlExStyle).ToInt64();
+            SetWindowLongPtr64(hwnd, GwlExStyle, (IntPtr)(ex | WsExNoActivate));
+        }
+        else
+        {
+            int ex = GetWindowLong32(hwnd, GwlExStyle);
+            SetWindowLong32(hwnd, GwlExStyle, ex | WsExNoActivate);
+        }
     }
 
     /// <summary>不激活窗口的拖动（替代 WPF DragMove）。</summary>

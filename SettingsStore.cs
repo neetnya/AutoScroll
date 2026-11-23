@@ -35,7 +35,15 @@ internal static class SettingsStore
             }
 
             string json = File.ReadAllText(FilePath);
-            return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            AppSettings settings = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions) ?? new AppSettings();
+            if (!double.IsFinite(settings.Left) || !double.IsFinite(settings.Top))
+            {
+                settings.HasPosition = false;
+                settings.Left = 0;
+                settings.Top = 0;
+            }
+
+            return settings;
         }
         catch
         {
@@ -47,13 +55,22 @@ internal static class SettingsStore
     {
         try
         {
+            if (!double.IsFinite(settings.Left) || !double.IsFinite(settings.Top))
+            {
+                settings.HasPosition = false;
+                settings.Left = 0;
+                settings.Top = 0;
+            }
+
             string? dir = Path.GetDirectoryName(FilePath);
             if (dir is not null)
             {
                 Directory.CreateDirectory(dir);
             }
 
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(settings, JsonOptions));
+            string tmpPath = FilePath + ".tmp";
+            File.WriteAllText(tmpPath, JsonSerializer.Serialize(settings, JsonOptions));
+            File.Move(tmpPath, FilePath, overwrite: true);
         }
         catch
         {
